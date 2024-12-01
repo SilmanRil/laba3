@@ -1,7 +1,6 @@
 import base64
 from sympy import randprime
-import requests
-from datetime import datetime
+import socket
 
 # Простейшая реализация RSA
 
@@ -170,21 +169,22 @@ def sign_document(document_path, private_key_path, hash_algorithm):
     with open("signature.txt", "wb") as f:
         f.write(base64.b64encode(signature.to_bytes((signature.bit_length() + 7) // 8, 'big')))
 
-    timestamp = datetime.now().isoformat()  # Получение текущего времени
+    # Запрос временной метки у сервера
+    timestamp = request_timestamp()
     print(f"Документ успешно подписан! Штамп времени: {timestamp}")
 
     # Записываем время в файл
     with open("timestamp.txt", "w") as f:
         f.write(timestamp)
 
-def get_timestamp():
-    #  TSA (заменить на реальный URL)
-    tsa_url = "http://example.com/timestamp"  # Заменить на реальный URL для получения штампа времени
-    response = requests.get(tsa_url)
-    if response.status_code == 200:
-        return response.json()  #  TSA возвращает JSON с информацией о времени
-    else:
-        raise Exception("Не удалось получить штамп времени")
+def request_timestamp():
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(('localhost', 5000))  # Подключаемся к серверу
+
+    timestamp = client_socket.recv(1024).decode('utf-8')  # Получаем данные от сервера
+    client_socket.close()  # Закрываем соединение
+
+    return timestamp
 
 def load_public_key(public_key_path):
     with open(public_key_path, "r", encoding='utf-8') as f:
