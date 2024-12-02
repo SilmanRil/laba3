@@ -1,4 +1,5 @@
 import base64
+import json
 from sympy import randprime
 import socket
 
@@ -26,20 +27,45 @@ def generate_rsa_keypair(p, q):
     return (e, n), (d, n)
 
 
-def format_key_as_pem(key, is_private=True):
-    key_type = "PRIVATE KEY" if is_private else "PUBLIC KEY"
-    d_bytes = key[0].to_bytes((key[0].bit_length() + 7) // 8, 'big')
-    n_bytes = key[1].to_bytes((key[1].bit_length() + 7) // 8, 'big')
-    key_bytes = d_bytes + n_bytes
-    key_b64 = base64.b64encode(key_bytes).decode('utf-8')
-    pem = f"-----BEGIN {key_type}-----\n"
-    pem += '\n'.join(key_b64[i:i + 64] for i in range(0, len(key_b64), 64))
-    pem += f"\n-----END {key_type}-----\n"
-    return pem
+def save_private_key(private_key):
+    d, n = private_key
+    keys = {
+        "d": d,
+        "n": n
+    }
+    with open("private_key.json", 'w') as json_file:
+        json.dump(keys, json_file, indent=4)
 
-def save_key_to_file(key, path, is_private=True):
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(format_key_as_pem(key, is_private))
+
+def save_public_key(public_key):
+    e, n = public_key
+    keys = {
+        "e": e,
+        "n": n
+    }
+    with open("public_key.json", 'w') as json_file:
+        json.dump(keys, json_file, indent=4)
+
+
+def load_private_key():
+    with open("private_key.json", 'r') as json_file:
+        keys = json.load(json_file)
+        return (keys["d"], keys["n"])
+
+
+def load_public_key():
+    with open("public_key.json", 'r') as json_file:
+        keys = json.load(json_file)
+        return keys["e"], keys["n"]
+
+
+def generate_keys():
+    p = randprime(2**511, 2**512)  # Генерация 512-битного простого числа
+    q = randprime(2**511, 2**512)  # Генерация 512-битного простого числа
+    public_key, private_key = generate_rsa_keypair(p, q)
+    save_private_key(private_key)
+    save_public_key(public_key)
+
 
 def encrypt(public_key, plaintext):
     e, n = public_key
@@ -50,25 +76,6 @@ def decrypt(private_key, ciphertext):
     d, n = private_key
     return pow(ciphertext, d, n)
 
-
-def generate_keys():
-    p = randprime(2**511, 2**512)  # Генерация 512-битного простого числа
-    q = randprime(2**511, 2**512)  # Генерация 512-битного простого числа
-    public_key, private_key = generate_rsa_keypair(p, q)
-    save_key_to_file(public_key, "public_key.pem", is_private=False)
-    save_key_to_file(private_key, "private_key.pem", is_private=True)
-
-def load_private_key(private_key_path):
-    with open(private_key_path, "r", encoding='utf-8') as f:
-        pem_data = f.readlines()
-    key_b64 = ''.join(line.strip() for line in pem_data[1:-1])
-    key_bytes = base64.b64decode(key_b64)
-
-    # Изменим размеры d и n для динамического определения
-    key_length = len(key_bytes) // 2
-    d = int.from_bytes(key_bytes[:key_length], 'big')
-    n = int.from_bytes(key_bytes[key_length:], 'big')
-    return d, n
 
 class SHA256:
     def __init__(self):
@@ -103,8 +110,10 @@ class SHA256:
         message += original_bit_len.to_bytes(8, byteorder='big')
         return message
 
+
     def _rotate_right(self, n, b):
         return ((n >> b) | (n << (32 - b))) & 0xffffffff
+
 
     def _process_chunk(self, chunk):
         w = [int.from_bytes(chunk[i:i + 4], 'big') for i in range(0, 64, 4)] + [0] * 48
@@ -153,18 +162,18 @@ def simple_sha256(data):
     return int(hashlib.sha256(data).hexdigest(), 16)
 
 
-def sign_document(document_path, private_key_path, hash_algorithm):
+def sign_document(document_path, hash_algorithm):
     with open(document_path, "rb") as f:
         document = f.read()
 
-    d, n = load_private_key(private_key_path)
+    private_key = load_private_key()
 
     if hash_algorithm == "SHA256":
         hash_value = simple_sha256(document)
     else:
         raise ValueError("Неизвестный алгоритм хеширования")
 
-    signature = pow(hash_value, d, n)
+    signature = pow(hash_value, private_key[0], private_key[1])
 
     with open("signature.txt", "wb") as f:
         f.write(base64.b64encode(signature.to_bytes((signature.bit_length() + 7) // 8, 'big')))
@@ -177,32 +186,22 @@ def sign_document(document_path, private_key_path, hash_algorithm):
     with open("timestamp.txt", "w") as f:
         f.write(timestamp)
 
+
 def request_timestamp():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(('localhost', 5000))  # Подключаемся к серверу
+    client_socket.connect(('localhost', 5000))
 
-    timestamp = client_socket.recv(1024).decode('utf-8')  # Получаем данные от сервера
-    client_socket.close()  # Закрываем соединение
+    timestamp = client_socket.recv(1024).decode('utf-8')
+    client_socket.close()
 
     return timestamp
 
-def load_public_key(public_key_path):
-    with open(public_key_path, "r", encoding='utf-8') as f:
-        pem_data = f.readlines()
-    key_b64 = ''.join(line.strip() for line in pem_data[1:-1])
-    key_bytes = base64.b64decode(key_b64)
-    e_size = 3
-    n_size = 256
-    e = int.from_bytes(key_bytes[:e_size], 'big')
-    n = int.from_bytes(key_bytes[e_size:e_size + n_size], 'big')
-    return (e, n)
 
-
-def verify_signature(document_path, public_key_path, signature_path):
+def verify_signature(document_path, signature_path):
     with open(document_path, "rb") as f:
         document = f.read()
 
-    public_key = load_public_key(public_key_path)
+    public_key = load_public_key()
 
     hash_value = simple_sha256(document)
 
@@ -227,9 +226,7 @@ def verify_signature(document_path, public_key_path, signature_path):
 
 
 def main():
-
     while True:
-
         print("Выберите действие:")
         print("1. Генерация ключей")
         print("2. Подписание документа")
@@ -241,9 +238,9 @@ def main():
             generate_keys()
         elif choice == "2":
             hash_algorithm = input("Выберите алгоритм хеширования (SHA256): ")
-            sign_document("document.txt", "private_key.pem", hash_algorithm)
+            sign_document("document.txt", hash_algorithm)
         elif choice == "3":
-            verify_signature("document.txt", "public_key.pem", "signature.txt")
+            verify_signature("document.txt", "signature.txt")
         elif choice == "4":
             break
         else:
