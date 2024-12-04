@@ -27,11 +27,13 @@ def generate_rsa_keypair(p, q):
     return (e, n), (d, n)
 
 
-def save_private_key(private_key):
+def save_private_key(private_key, p, q):
     d, n = private_key
     keys = {
         "d": d,
-        "n": n
+        "n": n,
+        "p": p,
+        "q": q
     }
     with open("private_key.json", 'w') as json_file:
         json.dump(keys, json_file, indent=4)
@@ -50,7 +52,7 @@ def save_public_key(public_key):
 def load_private_key():
     with open("private_key.json", 'r') as json_file:
         keys = json.load(json_file)
-        return (keys["d"], keys["n"])
+        return keys["d"], keys["n"]
 
 
 def load_public_key():
@@ -60,10 +62,10 @@ def load_public_key():
 
 
 def generate_keys():
-    p = randprime(2**511, 2**512)  # Генерация 512-битного простого числа
-    q = randprime(2**511, 2**512)  # Генерация 512-битного простого числа
+    p = randprime(2 ** 511, 2 ** 512)  # Генерация 512-битного простого числа
+    q = randprime(2 ** 511, 2 ** 512)  # Генерация 512-битного простого числа
     public_key, private_key = generate_rsa_keypair(p, q)
-    save_private_key(private_key)
+    save_private_key(private_key, p, q)
     save_public_key(public_key)
 
 
